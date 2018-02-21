@@ -1,0 +1,368 @@
+---
+title: "Multiple Linear Regression Wizard"
+# author: "Student"
+# date: "Always"
+output:
+  flexdashboard::flex_dashboard:
+    # orientation: rows
+    social: menu
+    vertical_layout: scroll
+    source_code: embed
+runtime: shiny
+---
+```{r global, include=FALSE}
+
+state_data = as.data.frame(state.x77)
+#Cleaning up the column names so that there are no spaces.
+colnames(state_data)[4] = "Life.Exp"
+colnames(state_data)[6] = "HS.Grad"
+
+#Creating a population density variable.
+state_data[,9] = round((state_data$Population*1000)/state_data$Area,2)
+colnames(state_data)[9] = "Density"
+
+
+library(flexdashboard)
+library(shiny)
+library(DT)
+library(MASS)
+library(caret)
+library(car)
+library(ggplot2)
+library(plotly)
+library(corrplot)
+
+```
+
+Model Options {.sidebar}
+=================================================
+
+### **Welcome!** 
+
+Select your dataset then choose which variable you are trying to predict. Next feel free to choose which features to include in two separate models that you can then compare.
+
+For now, this dashboard can only handle numeric features.   
+
+<br>
+
+### **Select Inputs:**
+
+```{r}
+selectInput(inputId = "topredict",
+            label = "1. What would you like to predict?",
+            choices = names(state_data))
+```
+```{r}
+
+uiOutput("firstmodelselect")
+
+output$firstmodelselect <- renderUI({ 
+  col_choices = setdiff(names(state_data),input$topredict)
+  
+  selectInput(inputId = "model1parameters",
+            label = "2. Choose Your First Model Parameters",
+            choices = col_choices,
+            selected = NULL,
+            multiple = TRUE)
+  
+ 
+})
+```
+```{r}
+uiOutput("secondmodelselect")
+
+output$secondmodelselect <- renderUI({ 
+  col_choices = setdiff(names(state_data),input$topredict)
+  
+  selectInput(inputId = "model2parameters",
+            label = "3. Choose Your Second Model Parameters",
+            choices = col_choices,
+            selected = NULL,
+            multiple = TRUE)
+  
+})
+
+
+model1 = eventReactive(input$model1parameters, {
+  predictors = paste(input$model1parameters, collapse=' + ')
+  eq = as.formula(paste(input$topredict, ' ~ ', predictors))
+  model1 = lm(formula = eq,
+              data = state_data)
+})
+
+model2 = eventReactive(input$model2parameters, {
+  predictors = paste(input$model2parameters, collapse=' + ')
+  eq = as.formula(paste(input$topredict, ' ~ ', predictors))
+  model2 = lm(formula = eq,
+              data = state_data)
+})
+
+full.model = eventReactive(input$topredict, {
+  eq = as.formula(paste(input$topredict, ' ~ .'))
+  model = lm(formula = eq,
+              data = state_data)
+})
+
+empty.model = eventReactive(input$topredict, {
+  eq = as.formula(paste(input$topredict, ' ~ 1'))
+  model = lm(formula = eq,
+              data = state_data)
+})
+```
+
+<br>
+
+### **Congratulations!**
+Now work your way through the tabs to learn more about Multiple Linear Regression!
+
+
+
+
+
+The Data {data-orientation=rows}
+=================================================
+
+Predicted Variable
+--------------------------------
+
+```{r}
+
+plotOutput("predictedfeaturedist")
+
+output$predictedfeaturedist = renderPlot({
+  
+  ggplot(state_data, aes_string(x=as.name(input$topredict))) + 
+    geom_histogram(fill='skyblue') +
+    geom_freqpoly(color = 'red') + 
+    theme_classic() +
+    ggtitle("Distribution of predicted variable")
+  
+})
+
+```
+
+The Data
+---------------------------
+
+```{r}
+DT::dataTableOutput("datatable")
+output$datatable = DT::renderDataTable({
+  
+  dt = state_data[input$model1parameters]
+  
+  datatable(dt, rownames = T) %>%
+    formatStyle(input$model1parameters,
+                background = '#ecf2f1',
+                fontWeight = 'bold',
+                `font-color` = 'white',
+                `border` = '2px solid #8a8a8a')
+  
+  }, options = list(scrollX = TRUE,
+                  columnDefs = list(list(className = 'dt-center', targets = "_all")))
+)
+```
+
+
+AV Plots
+=================================================
+
+AV Plots {.tabset .tabset-fade}
+--------------------------------
+### Added-Variable Plots
+
+```{r}
+renderPlot({
+  avPlots(full.model())
+})
+```
+
+### Manual AV Plot
+
+```{r}
+renderPlot({
+  nopop_y = lm(Life.Exp ~ . - Population, data = state_data)
+  nopop_X = lm(Population ~ . - Population, data = state_data)
+  plot(nopop_X$residuals,nopop_y$residuals)
+})
+
+# renderPlot({
+#   avPlots(model2())
+# })
+```
+
+
+Correlation {data-orientation=rows}
+=================================================
+
+### Summary of Data
+
+```{r}
+# topredict, model1parameters, model2paramenters
+
+#Basic numerical EDA for state_data dataset.
+renderPrint({
+  summary(state_data)
+})
+```
+
+### Correlation Plot
+
+```{r}
+renderPlot({
+  corrplot(cor(state_data))
+})
+
+#Basic graphical EDA for the state_data dataset.
+
+
+```
+
+Model Summaries & Plots 
+=================================================
+
+Model 1 
+-------------------------------------
+### Model 1 Summary
+
+```{r}
+renderPrint({
+  summary(model1())
+})
+```
+
+### Model 1 Plots 
+
+```{r}
+renderPlot({
+  grid = par(mfrow = c(2,2))
+  plot(model1())
+  par(grid)
+})
+```
+
+Model 2
+---------------------------------------
+### Model 2 Summary
+
+```{r}
+renderPrint({
+  summary(model2())
+})
+
+```
+
+### Model 2 Plots
+
+```{r}
+renderPlot({
+  grid = par(mfrow = c(2,2))
+  plot(model2())
+  par(grid)
+})
+
+
+#influnce plot
+#vif
+#avplot
+       
+```
+
+Model Comparison 
+=================================================
+
+Partial F-Test (ANOVA)
+
+```{r}
+renderPrint({
+  anova(model1(),
+      model2())
+})
+```
+
+AIC Results
+
+```{r}
+renderPrint({
+  AIC(model1(),
+      model2())
+})
+```
+
+BIC Results
+
+```{r}
+renderPrint({
+  BIC(model1(),
+      model2()) 
+})
+```
+
+Stepwise Model Selection {data-orientation=rows}
+=================================================
+
+### Choices 
+
+```{r}
+selectInput(inputId = "penalty",
+            label = "1. What penalty coefficient would you like?",
+            choices = c('AIC: 2','BIC: log(n)'))
+selectInput(inputId = "direction",
+            label = "2. What direction would you like to move?",
+            choices = c('forward', 'backward', 'both'))
+selectInput(inputId = "start",
+            label = '3. If you chose "both", where would you like to start?',
+            choices = c('empty.model', 'full.model'))
+```
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
+### Results
+
+```{r}
+renderPrint({
+  
+  model.empty = lm(Life.Exp ~ 1, data = state_data) 
+  model.full = lm(Life.Exp ~ ., data = state_data) 
+  scope = list(lower = formula(model.empty), upper = formula(model.full))
+  penalty = ifelse(input$penalty == 'AIC: 2', 2, log(8))
+  
+  if (input$direction == 'forward') {
+    step(model.empty, scope, direction = input$direction, k = penalty)
+  } else if (input$direction == 'backward') {
+    step(model.full, scope, direction = input$direction, k = penalty)
+  } else {
+    if (input$start == 'empty.model') {
+      step(model.empty, scope, direction = input$direction, k = penalty)
+    } else {
+      step(model.full, scope, direction = input$direction, k = penalty)
+    }
+  } 
+  
+})
+
+```
+
+Prediction 
+=================================================
+
+### Model 1 Prediction
+```{r}
+renderPrint({
+  predicted = as.data.frame(model1()$fitted.values)
+  colnames(predicted) <- c("Predicted")
+  merge(state_data[input$topredict], predicted, by=0)
+})
+```
+
+Code 
+=================================================
+
+```{r}
+
+```
